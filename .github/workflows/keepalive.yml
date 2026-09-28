@@ -7,6 +7,9 @@
 # Wichtig: Dieser Workflow darf uptime.yml nie verändern. Benachrichtigungen
 # zu geplanten Läufen gehen an die Person, die die Cron-Zeile zuletzt
 # geändert hat.
+#
+# Bewusst ohne fremde Actions: Das Repository wird nur mit git und dem
+# eingebauten Token geklont, es gibt also nichts zu aktualisieren.
 
 name: Keepalive
 
@@ -24,10 +27,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
-
       - name: Zeitstempel schreiben
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -eu
+          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo
+          cd repo
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/keepalive
           git config user.name "Keepalive"
           git config user.email "keepalive@noreply.invalid"
