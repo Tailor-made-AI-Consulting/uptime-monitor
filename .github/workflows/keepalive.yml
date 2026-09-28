@@ -1,0 +1,36 @@
+# Hält das Repository aktiv.
+#
+# GitHub schaltet geplante Workflows in öffentlichen Repositories ab, wenn
+# 60 Tage lang keine Aktivität stattfindet. Ein monatlicher Commit in eine
+# eigene Datei verhindert das.
+#
+# Wichtig: Dieser Workflow darf uptime.yml nie verändern. Benachrichtigungen
+# zu geplanten Läufen gehen an die Person, die die Cron-Zeile zuletzt
+# geändert hat.
+
+name: Keepalive
+
+on:
+  schedule:
+    - cron: "17 4 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    name: Aktivität
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Zeitstempel schreiben
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/keepalive
+          git config user.name "Keepalive"
+          git config user.email "keepalive@noreply.invalid"
+          git add .github/keepalive
+          git commit -m "Keepalive"
+          git push

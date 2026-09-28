@@ -1,0 +1,82 @@
+# Externe Verfügbarkeitsprüfung.
+#
+# Die geprüften Hosts stehen im Repository-Secret HOSTS (durch Leerzeichen
+# oder Zeilenumbrüche getrennt). Im Log erscheinen sie nur als Nummer.
+#
+# Schlägt ein Endpunkt nach mehreren Versuchen fehl, endet der Lauf mit
+# Fehler und GitHub verschickt eine Benachrichtigung.
+
+name: Uptime
+
+on:
+  schedule:
+    # Alle 10 Minuten, versetzt zur vollen Stunde: Dort ist die Last bei
+    # GitHub am höchsten und geplante Läufe fallen am ehesten aus.
+    - cron: "3-59/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Erreichbarkeit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Endpunkte prüfen
+        env:
+          HOSTS: ${{ secrets.HOSTS }}
+        run: |
+          set -u
+
+          if [ -z "$(printf '%s' "$HOSTS" | tr -d '[:space:]')" ]; then
+            echo "Secret HOSTS fehlt oder ist leer."
+            exit 1
+          fi
+
+          # Jeden Host einzeln maskieren. Das Secret als Ganzes maskiert
+          # GitHub selbst, einen einzelnen Host aber nicht.
+          for host in $HOSTS; do
+            echo "::add-mask::${host}"
+          done
+
+          PATHS="/api/health /login"
+          # Mehrere Versuche mit Abstand überbrücken kurze Unterbrechungen,
+          # etwa während eines Deploys.
+          ATTEMPTS=3
+          GAP=20
+
+          total=$(( $(printf '%s\n' $HOSTS | wc -l) * $(printf '%s\n' $PATHS | wc -l) ))
+          n=0
+          failures=""
+          for host in $HOSTS; do
+            for path in $PATHS; do
+              n=$((n + 1))
+              label="Endpunkt ${n} von ${total} (${path})"
+              ok=""
+              for i in $(seq 1 $ATTEMPTS); do
+                code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "https://${host}${path}") || code="000"
+                if [ "$code" = "200" ]; then
+                  echo "OK          ${label}: HTTP ${code}, Versuch ${i}"
+                  ok="ja"
+                  break
+                fi
+                echo "Fehlschlag  ${label}: HTTP ${code}, Versuch ${i} von ${ATTEMPTS}"
+                if [ "$i" -lt "$ATTEMPTS" ]; then sleep $GAP; fi
+              done
+              if [ -z "$ok" ]; then
+                failures="${failures}  - ${label}, zuletzt HTTP ${code}\n"
+              fi
+            done
+          done
+
+          if [ -n "$failures" ]; then
+            echo ""
+            echo "AUSFALL: Diese Endpunkte antworten nach ${ATTEMPTS} Versuchen nicht mit HTTP 200:"
+            printf "%b" "$failures"
+            exit 1
+          fi
+
+          echo ""
+          echo "Alle Endpunkte erreichbar."
